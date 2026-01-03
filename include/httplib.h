@@ -2443,16 +2443,20 @@ namespace detail {
 
 #if defined(_WIN32)
 inline std::wstring u8string_to_wstring(const char *s) {
-  std::wstring ws;
+  if (!s) { return std::wstring(); }
+
   auto len = static_cast<int>(strlen(s));
+  if (!len) { return std::wstring(); }
+
   auto wlen = ::MultiByteToWideChar(CP_UTF8, 0, s, len, nullptr, 0);
-  if (wlen > 0) {
-    ws.resize(wlen);
-    wlen = ::MultiByteToWideChar(
-        CP_UTF8, 0, s, len,
-        const_cast<LPWSTR>(reinterpret_cast<LPCWSTR>(ws.data())), wlen);
-    if (wlen != static_cast<int>(ws.size())) { ws.clear(); }
-  }
+  if (!wlen) { return std::wstring(); }
+
+  std::wstring ws;
+  ws.resize(wlen);
+  wlen = ::MultiByteToWideChar(
+      CP_UTF8, 0, s, len,
+      const_cast<LPWSTR>(reinterpret_cast<LPCWSTR>(ws.data())), wlen);
+  if (wlen != static_cast<int>(ws.size())) { ws.clear(); }
   return ws;
 }
 #endif
@@ -4543,6 +4547,7 @@ inline int getaddrinfo_with_timeout(const char *node, const char *service,
 
   return ret;
 #elif TARGET_OS_MAC
+  if (!node) { return EAI_NONAME; }
   // macOS implementation using CFHost API for asynchronous DNS resolution
   CFStringRef hostname_ref = CFStringCreateWithCString(
       kCFAllocatorDefault, node, kCFStringEncodingUTF8);
