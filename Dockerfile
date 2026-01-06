@@ -32,11 +32,10 @@ RUN go run ../scripts/generate_param_compat.go -o param_compat.h
 
 # Build static library (enable CGO for musl)
 # 关键修改：
-# 1. 显式指定 CC=musl-gcc 确保纯 musl 工具链
+# 1. Alpine 的 gcc 已经是 musl 工具链，无需显式指定 CC
 # 2. 使用 -trimpath 减少二进制体积（安全的瘦身方式）
 # 3. 禁止 -ldflags="-s -w"，保留完整符号表
-RUN echo "==> Building for $TARGETARCH with musl toolchain" && \
-    CC=musl-gcc \
+RUN echo "==> Building for $TARGETARCH with Alpine musl toolchain" && \
     CGO_ENABLED=1 \
     go build \
     -trimpath \
