@@ -32,6 +32,7 @@ struct extra_settings {
   bool enable_rule_generator = true;
   bool overwrite_original_rules = true;
   RegexMatchConfigs rename_array;
+  bool rename_for_providers = false;
   RegexMatchConfigs emoji_array;
   bool add_emoji = false;
   bool remove_emoji = false;

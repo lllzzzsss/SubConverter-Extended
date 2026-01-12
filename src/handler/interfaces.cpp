@@ -648,8 +648,10 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS) {
           ext.overwrite_original_rules = extconf.overwrite_original_rules;
         }
       }
-      if (!extconf.rename.empty())
+      if (!extconf.rename.empty()) {
         ext.rename_array = extconf.rename;
+        ext.rename_for_providers = true;
+      }
       if (!extconf.emoji.empty())
         ext.emoji_array = extconf.emoji;
       if (!extconf.include.empty())
@@ -696,8 +698,10 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS) {
               ext.overwrite_original_rules = extconf.overwrite_original_rules;
             }
           }
-          if (!extconf.rename.empty())
+          if (!extconf.rename.empty()) {
             ext.rename_array = extconf.rename;
+            ext.rename_for_providers = true;
+          }
           if (!extconf.emoji.empty())
             ext.emoji_array = extconf.emoji;
           if (!extconf.include.empty())
@@ -753,10 +757,11 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS) {
   ext.remove_emoji = argRemoveEmoji.get(global.removeEmoji);
   if (ext.add_emoji && ext.emoji_array.empty())
     ext.emoji_array = safe_get_emojis();
-  if (!argRenames.empty())
+  if (!argRenames.empty()) {
     ext.rename_array = INIBinding::from<RegexMatchConfig>::from_ini(
         split(argRenames, "`"), "@");
-  else if (ext.rename_array.empty())
+    ext.rename_for_providers = true;
+  } else if (ext.rename_array.empty())
     ext.rename_array = safe_get_renames();
 
   /// check custom include/exclude settings

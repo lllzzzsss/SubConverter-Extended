@@ -39,7 +39,7 @@ static bool splitRenameGroupRule(const std::string &match,
 static YAML::Node buildProviderProxyNameOverride(const ProxyProvider &provider,
                                                  const extra_settings &ext) {
   YAML::Node proxy_name_node(YAML::NodeType::Sequence);
-  if (ext.rename_array.empty())
+  if (!ext.rename_for_providers || ext.rename_array.empty())
     return proxy_name_node;
 
   for (const RegexMatchConfig &rule : ext.rename_array) {
