@@ -414,7 +414,7 @@ static bool extractLinkPrefix(const std::string &input,
   size_t link_pos = comma_pos + 1;
   if (bracketed && link_pos < trimmed.size() && trimmed[link_pos] == '>')
     link_pos++;
-  if (value.empty() || link_pos >= trimmed.size())
+  if (link_pos >= trimmed.size())
     return false;
 
   remainder = trimmed.substr(link_pos);
@@ -433,7 +433,7 @@ static bool parseLinkPrefixes(const std::string &input, TaggedLink &result) {
     std::string next;
     if (extractLinkPrefix(remainder, "tag:", value, next, saw_bracketed)) {
       parsed = true;
-      if (!result.has_tag) {
+      if (!value.empty() && !result.has_tag) {
         result.tag = value;
         result.has_tag = true;
       }
@@ -442,7 +442,7 @@ static bool parseLinkPrefixes(const std::string &input, TaggedLink &result) {
     }
     if (extractLinkPrefix(remainder, "provider:", value, next, saw_bracketed)) {
       parsed = true;
-      if (!result.has_provider) {
+      if (!value.empty() && !result.has_provider) {
         result.provider = value;
         result.has_provider = true;
       }
@@ -489,6 +489,99 @@ static TaggedLink parseTaggedLink(const std::string &input) {
   }
   result.link = value;
   return result;
+}
+
+static constexpr size_t kProviderNameMaxLen = 64;
+
+static bool isWindowsReservedName(const std::string &name) {
+  if (name.empty())
+    return false;
+  std::string trimmed = trimWhitespace(name, true, true);
+  trimmed = trimOf(trimmed, '.', true, true);
+  if (trimmed.empty())
+    return false;
+  std::string upper = toUpper(trimmed);
+  string_size dot_pos = upper.find('.');
+  std::string base =
+      dot_pos == std::string::npos ? upper : upper.substr(0, dot_pos);
+  static const std::unordered_set<std::string> reserved = {
+      "CON",  "PRN",  "AUX",  "NUL",  "COM1", "COM2", "COM3", "COM4",
+      "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
+      "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"};
+  return reserved.find(base) != reserved.end();
+}
+
+static std::string clampProviderNameLength(const std::string &name,
+                                           size_t max_len) {
+  if (name.size() <= max_len)
+    return name;
+  std::string truncated = name.substr(0, max_len);
+  while (!truncated.empty() && !isStrUTF8(truncated))
+    truncated.pop_back();
+  return truncated;
+}
+
+static std::string sanitizeProviderName(const std::string &input) {
+  std::string name = trimWhitespace(input, true, true);
+  if (name.empty())
+    return "";
+
+  std::string cleaned;
+  cleaned.reserve(name.size());
+  bool last_was_underscore = false;
+  char last_out = '\0';
+
+  for (unsigned char c : name) {
+    bool invalid = false;
+    if (c < 0x20 || c == 0x7F)
+      invalid = true;
+    if (!invalid) {
+      switch (c) {
+      case '<':
+      case '>':
+      case ':':
+      case '"':
+      case '/':
+      case '\\':
+      case '|':
+      case '?':
+      case '*':
+        invalid = true;
+        break;
+      default:
+        break;
+      }
+    }
+    if (!invalid && c == '.' && last_out == '.')
+      invalid = true;
+    if (!invalid && c == '_')
+      invalid = true;
+
+    if (invalid) {
+      if (!last_was_underscore) {
+        cleaned.push_back('_');
+        last_was_underscore = true;
+        last_out = '_';
+      }
+      continue;
+    }
+
+    cleaned.push_back(static_cast<char>(c));
+    last_was_underscore = false;
+    last_out = static_cast<char>(c);
+  }
+
+  cleaned = trimWhitespace(cleaned, true, true);
+  cleaned = trimOf(cleaned, '.', true, true);
+  if (cleaned.empty() || isWindowsReservedName(cleaned))
+    return "";
+
+  cleaned = clampProviderNameLength(cleaned, kProviderNameMaxLen);
+  cleaned = trimOf(cleaned, '.', true, true);
+  if (cleaned.empty() || isWindowsReservedName(cleaned))
+    return "";
+
+  return cleaned;
 }
 
 
@@ -985,11 +1078,24 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS) {
       ext.use_proxy_provider = true;
       std::unordered_set<std::string> provider_names;
       auto reserve_provider_name = [&](const std::string &base) {
-        if (provider_names.insert(base).second)
-          return base;
+        std::string base_name =
+            clampProviderNameLength(base, kProviderNameMaxLen);
+        base_name = trimOf(base_name, '.', true, true);
+        if (base_name.empty())
+          base_name = "Provider";
+        if (provider_names.insert(base_name).second)
+          return base_name;
         int index = 1;
         while (true) {
-          std::string candidate = base + "_" + std::to_string(index);
+          std::string suffix = "_" + std::to_string(index);
+          size_t max_base = kProviderNameMaxLen > suffix.size()
+                                ? kProviderNameMaxLen - suffix.size()
+                                : 0;
+          std::string prefix = clampProviderNameLength(base_name, max_base);
+          prefix = trimOf(prefix, '.', true, true);
+          if (prefix.empty())
+            prefix = clampProviderNameLength("Provider", max_base);
+          std::string candidate = prefix + suffix;
           if (provider_names.insert(candidate).second)
             return candidate;
           index++;
@@ -1006,8 +1112,12 @@ std::string subconverter(RESPONSE_CALLBACK_ARGS) {
             item.url_decoded ? generateProviderHashFromDecodedUrl(item.url)
                              : generateProviderHash(item.url);
         std::string default_name = "Provider_" + urlHash;
+        std::string sanitized_provider = sanitizeProviderName(item.provider);
         std::string base_name =
-            item.provider.empty() ? default_name : item.provider;
+            sanitized_provider.empty() ? default_name : sanitized_provider;
+        base_name = sanitizeProviderName(base_name);
+        if (base_name.empty())
+          base_name = default_name;
         provider.name = reserve_provider_name(base_name);
         provider.tag = item.tag;
         writeLog(0,
